@@ -1,0 +1,210 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فاحص أسماء روبلوكس</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;padding:20px;
+  font-family:Arial,sans-serif;
+  background:#10131c;color:#fff;
+}
+main{max-width:650px;margin:auto}
+h1{text-align:center;color:#9d8cff}
+p{color:#c5c8d5;line-height:1.8}
+.panel{
+  background:#1b2030;padding:18px;
+  border-radius:16px;margin:16px 0;
+}
+button,select{
+  border:0;border-radius:10px;
+  padding:13px;font-size:16px;
+}
+button{
+  background:#7865ed;color:white;
+  font-weight:bold;cursor:pointer;
+}
+button:disabled{opacity:.5}
+select{background:#30364a;color:white}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.actions button{flex:1}
+#status{margin:14px 0;color:#c5c8d5}
+.item{
+  display:flex;justify-content:space-between;
+  align-items:center;gap:10px;
+  padding:12px;border-bottom:1px solid #34394b;
+}
+.name{font-weight:bold;direction:ltr}
+.available{color:#5ce6a0}
+.taken{color:#ff7676}
+.unknown{color:#ffd166}
+.small{font-size:13px;color:#b9bfd0}
+</style>
+</head>
+<body>
+<main>
+<h1>🎮 فاحص أسماء روبلوكس</h1>
+<p>ولّد 100 اسم رباعي عشوائي، ثم افحص الأسماء لمعرفة حالتها. لن نعتبر الاسم متاحًا إذا تعذّر التحقق منه.</p>
+
+<section class="panel">
+<label for="mode">نوع الأسماء:</label>
+<br><br>
+<select id="mode">
+<option value="both">حروف وأرقام</option>
+<option value="letters">حروف إنجليزية فقط</option>
+<option value="digits">أرقام فقط</option>
+</select>
+<br><br>
+<div class="actions">
+<button id="generate">🎲 توليد 100 اسم</button>
+<button id="check">🔎 فحص الأسماء</button>
+</div>
+<div id="status">اضغط توليد للبدء.</div>
+<div id="results"></div>
+<br>
+<button id="copy" style="width:100%">نسخ الأسماء</button>
+</section>
+
+<p class="small">
+✅ متاح حسب نتيجة الفحص — ❌ محجوز — ❓ تعذّر التحقق.
+قد لا تسمح روبلوكس ببعض الأسماء حتى لو كانت غير مستخدمة.
+</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let names = [];
+let states = {};
+
+function randomName(mode) {
+  const letters = "abcdefghijklmnopqrstuvwxyz";
+  const digits = "0123456789";
+  const chars = mode === "letters" ? letters :
+                mode === "digits" ? digits :
+                letters + digits;
+  let result = "";
+  for (let i = 0; i < 4; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+function render() {
+  $("results").innerHTML = "";
+  names.forEach(name => {
+    const state = states[name] || "waiting";
+    const labels = {
+      waiting: ["⏳", ""],
+      available: ["✅ متاح", "available"],
+      taken: ["❌ محجوز أو غير صالح", "taken"],
+      unknown: ["❓ تعذّر التحقق", "unknown"],
+      checking: ["🔄 جاري الفحص", "unknown"]
+    };
+    const [label, cls] = labels[state];
+    const row = document.createElement("div");
+    row.className = "item";
+    const n = document.createElement("span");
+    n.className = "name";
+    n.textContent = name;
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = label;
+    row.append(n, s);
+    $("results").appendChild(row);
+  });
+}
+
+$("generate").onclick = () => {
+  const mode = $("mode").value;
+  const set = new Set();
+  while (set.size < 100) set.add(randomName(mode));
+  names = [...set];
+  states = {};
+  names.forEach(n => states[n] = "waiting");
+  $("status").textContent = "تم توليد 100 اسم. اضغط فحص الأسماء.";
+  render();
+};
+
+$("check").onclick = async () => {
+  if (!names.length) {
+    $("status").textContent = "ولّد الأسماء أولًا.";
+    return;
+  }
+
+  $("check").disabled = true;
+  let done = 0;
+  $("status").textContent = "بدأ الفحص…";
+  render();
+
+  for (const name of names) {
+    states[name] = "checking";
+    render();
+
+    try {
+      const response = await fetch(
+        "https://users.roblox.com/v1/usernames/validate",
+        {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            username: name,
+            birthday: "2000-01-01",
+            context: "Signup"
+          })
+        }
+      );
+
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+
+      if (data.code === 0) {
+        states[name] = "available";
+      } else if (data.code === 1) {
+        states[name] = "taken";
+      } else {
+        states[name] = "taken";
+      }
+    } catch (error) {
+      states[name] = "unknown";
+    }
+
+    done++;
+    $("status").textContent =
+      `تم فحص ${done} من ${names.length}.`;
+    render();
+
+    // تقليل الضغط على الخدمة
+    await new Promise(resolve => setTimeout(resolve, 350));
+  }
+
+  const available = names.filter(n => states[n] === "available").length;
+  const unknown = names.filter(n => states[n] === "unknown").length;
+  $("status").textContent =
+    `انتهى الفحص: ${available} متاح حسب الرد، و${unknown} تعذّر التحقق منها.`;
+  $("check").disabled = false;
+};
+
+$("copy").onclick = async () => {
+  const text = names.map(n =>
+    `${n} - ${
+      states[n] === "available" ? "متاح حسب الفحص" :
+      states[n] === "taken" ? "محجوز أو غير صالح" :
+      states[n] === "unknown" ? "تعذّر التحقق" :
+      "لم يُفحص"
+    }`
+  ).join("\n");
+
+  try {
+    await navigator.clipboard.writeText(text);
+    $("status").textContent = "تم نسخ القائمة.";
+  } catch {
+    $("status").textContent =
+      "تعذّر النسخ التلقائي. افتح الموقع في Safari وحاول مجددًا.";
+  }
+};
+</script>
+</body>
+</html>
